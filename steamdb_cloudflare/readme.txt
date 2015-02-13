@@ -1,0 +1,1 @@
+This is a version of the SteamDB plugin, updated to avoid Cloudflare protection. It can't be added to the main repo because it requires a node.js installation to work.
