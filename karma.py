@@ -1,5 +1,5 @@
 from cloudbot import hook
-from cloudbot.util import timeformat, botvars
+from cloudbot.util import timeformat, formatting, botvars
 
 import time
 import re
@@ -24,57 +24,63 @@ voter_table = Table(
     botvars.metadata,
     Column('voter', String),
     Column('votee', String),
-    Column('epoch', Float),
+    Column('timestamp', Float),
     PrimaryKeyConstraint('voter', 'votee')
 )
 
 
 def up(db, nick_vote):
-    db.execute("""UPDATE karma SET
-               up_karma = up_karma + 1,
-               total_karma = total_karma + 1 WHERE nick_vote=?""", (nick_vote.lower(),))
+    query = karma_table.update().values(
+        up_karma=karma_table.c.up_karma + 1,
+        total_karma=karma_table.c.total_karma + 1
+    ).where(karma_table.c.nick_vote == nick_vote.lower())
+    db.execute(query)
     db.commit()
 
 
 def down(db, nick_vote):
-    db.execute("""UPDATE karma SET
-               down_karma = down_karma + 1,
-               total_karma = total_karma + 1 WHERE nick_vote=?""", (nick_vote.lower(),))
+    query = karma_table.update().values(
+        down_karma=karma_table.c.down_karma + 1,
+        total_karma=karma_table.c.total_karma - 1
+    ).where(karma_table.c.nick_vote == nick_vote.lower())
+    db.execute(query)
     db.commit()
 
 
 def allowed(db, nick, nick_vote):
-    time_restriction = 3600
-    db.execute("""DELETE FROM karma_voters WHERE ? - epoch >= 3600""",
-            (time.time(),))
+    time_restriction = 3600.0
+
+    db.execute(voter_table.delete().where((time.time() - voter_table.c.timestamp) >= time_restriction))
     db.commit()
-    check = db.execute("""SELECT epoch FROM karma_voters WHERE voter=? AND votee=?""",
-            (nick.lower(), nick_vote.lower())).fetchone()
+
+    check = db.execute(
+        select([voter_table.c.timestamp])
+        .where(voter_table.c.voter == nick.lower())
+        .where(voter_table.c.votee == nick_vote.lower())
+    ).scalar()
 
     if check:
-        check = check[0]
+        print(check)
         if time.time() - check >= time_restriction:
             db.execute("""INSERT OR REPLACE INTO karma_voters(
                        voter,
                        votee,
-                       epoch) values(?,?,?)""", (nick.lower(), nick_vote.lower(), time.time()))
+                       timestamp) values(:voter, :votee, :timestamp)""",
+                       {'voter': nick.lower(), 'votee': nick_vote.lower(), 'timestamp': time.time()})
             db.commit()
             return True, 0
         else:
-            return False, timeformat.timeuntil(check, now=time.time() - time_restriction)
+            return False, timeformat.time_until(check, now=time.time() - time_restriction)
     else:
         db.execute("""INSERT OR REPLACE INTO karma_voters(
                    voter,
                    votee,
-                   epoch) values(?,?,?)""", (nick.lower(), nick_vote.lower(), time.time()))
+                   timestamp) values(:voter, :votee, :timestamp)""",
+                   {'voter': nick.lower(), 'votee': nick_vote.lower(), 'timestamp': time.time()})
         db.commit()
         return True, 0
 
-
-# TODO Make this work on multiple matches in a string, right now it'll only
-# work on one match.
-# karma_re = ('((\S+)(\+\+|\-\-))+', re.I)
-karma_re = re.compile('(.+)(\+\+|\-\-)$', re.I)
+karma_re = re.compile('^([a-z0-9_\-\[\]\\^{}|`]+)(\+\+|\-\-)$', re.I)
 
 
 @hook.regex(karma_re)
@@ -93,7 +99,8 @@ def karma_add(match, nick, db, notice):
                        nick_vote,
                        up_karma,
                        down_karma,
-                       total_karma) values(:nick,:up,?,?)""", (nick_vote.lower(), 0, 0, 0))
+                       total_karma) values(:nick,0,0,0)""", {'nick': nick_vote.lower()})
+            db.commit()
             up(db, nick_vote)
             notice("Gave {} 1 karma!".format(nick_vote))
         if match.group(2) == '--' and CAN_DOWNVOTE:
@@ -101,28 +108,34 @@ def karma_add(match, nick, db, notice):
                        nick_vote,
                        up_karma,
                        down_karma,
-                       total_karma) values(?,?,?,?)""", (nick_vote.lower(), 0, 0, 0))
+                       total_karma) values(:nick,0,0,0)""", {'nick': nick_vote.lower()})
+            db.commit()
             down(db, nick_vote)
+
             notice("Took away 1 karma from {}.".format(nick_vote))
         else:
             return
     else:
-        notice("You are trying to vote too often. You can vote again in {}!".format(when))
+        notice("You are trying to vote too often. You can vote on this user again in {}!".format(when))
 
 
 @hook.command('karma', 'k')
-def karma(inp, chan, db):
+def karma(text, chan, db):
     """k/karma <nick> -- returns karma stats for <nick>"""
 
     if not chan.startswith('#'):
         return
 
-    nick_vote = inp
-    out = db.execute("""SELECT * FROM karma WHERE nick_vote=?""",
-            (nick_vote.lower(),)).fetchall()
+    nick_vote = text
 
-    if not out:
+    query = db.execute(
+        select([karma_table])
+        .where(karma_table.c.nick_vote == nick_vote.lower())
+    ).fetchall()
+
+    if not query:
         return "That user has no karma."
     else:
-        out = out[0]
-        return "{} has {} karma points.".format(nick_vote, out[1] - out[2])
+        query = query[0]
+        karma_text = formatting.pluralize(query['up_karma'] - query['down_karma'], 'karma point')
+        return "{} has {}.".format(nick_vote, karma_text)
