@@ -29,6 +29,11 @@ voter_table = Table(
 
 
 def up(db, nick_vote):
+    db.execute("""INSERT or IGNORE INTO karma(
+        nick_vote,
+        up_karma,
+        down_karma,
+        total_karma) values(:nick,0,0,0)""", {'nick': nick_vote.lower()})
     query = karma_table.update().values(
         up_karma=karma_table.c.up_karma + 1
     ).where(karma_table.c.nick_vote == nick_vote.lower())
@@ -37,6 +42,11 @@ def up(db, nick_vote):
 
 
 def down(db, nick_vote):
+    db.execute("""INSERT or IGNORE INTO karma(
+        nick_vote,
+        up_karma,
+        down_karma,
+        total_karma) values(:nick,0,0,0)""", {'nick': nick_vote.lower()})
     query = karma_table.update().values(
         down_karma=karma_table.c.down_karma + 1
     ).where(karma_table.c.nick_vote == nick_vote.lower())
@@ -92,23 +102,10 @@ def karma_add(match, nick, db, notice):
     vote_allowed, when = allowed(db, nick, nick_vote)
     if vote_allowed:
         if match.group(2) == '++':
-            db.execute("""INSERT or IGNORE INTO karma(
-                       nick_vote,
-                       up_karma,
-                       down_karma,
-                       total_karma) values(:nick,0,0,0)""", {'nick': nick_vote.lower()})
-            db.commit()
             up(db, nick_vote)
             notice("Gave {} 1 karma!".format(nick_vote))
         if match.group(2) == '--' and CAN_DOWNVOTE:
-            db.execute("""INSERT or IGNORE INTO karma(
-                       nick_vote,
-                       up_karma,
-                       down_karma,
-                       total_karma) values(:nick,0,0,0)""", {'nick': nick_vote.lower()})
-            db.commit()
             down(db, nick_vote)
-
             notice("Took away 1 karma from {}.".format(nick_vote))
         else:
             return
