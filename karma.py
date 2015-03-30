@@ -15,7 +15,6 @@ karma_table = Table(
     Column('nick_vote', String),
     Column('up_karma', Integer, default=0),
     Column('down_karma', Integer, default=0),
-    Column('total_karma', Integer, default=0),
     PrimaryKeyConstraint('nick_vote')
 )
 
@@ -31,8 +30,7 @@ voter_table = Table(
 
 def up(db, nick_vote):
     query = karma_table.update().values(
-        up_karma=karma_table.c.up_karma + 1,
-        total_karma=karma_table.c.total_karma + 1
+        up_karma=karma_table.c.up_karma + 1
     ).where(karma_table.c.nick_vote == nick_vote.lower())
     db.execute(query)
     db.commit()
@@ -40,8 +38,7 @@ def up(db, nick_vote):
 
 def down(db, nick_vote):
     query = karma_table.update().values(
-        down_karma=karma_table.c.down_karma + 1,
-        total_karma=karma_table.c.total_karma - 1
+        down_karma=karma_table.c.down_karma + 1
     ).where(karma_table.c.nick_vote == nick_vote.lower())
     db.execute(query)
     db.commit()
